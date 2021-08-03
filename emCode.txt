@@ -1,0 +1,107 @@
+from machine import Pin
+from machine import I2C
+import max30100
+import onewire
+import ds18x20
+import time
+import dht
+import socket
+import network
+
+temp=0
+
+ssid = 'ESP32_project'
+
+ap = network.WLAN(network.AP_IF)
+ap.active(True)
+ap.config(essid=ssid)
+while not ap.active():
+    pass
+print('network config:', ap.ifconfig())
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.bind(('',80)) 
+s.listen(5)     
+
+
+ow = onewire.OneWire(Pin(21))   
+ow.scan()
+ds=ds18x20.DS18X20(ow)          
+sda=Pin(4)
+scl=Pin(5)             
+i2c = I2C(scl=scl,sda=sda)
+sensor = dht.DHT11(Pin(23))
+
+sensor1 = max30100.MAX30100(i2c=i2c)
+
+sensor1.enable_spo2()
+
+
+
+def read_ds_sensor():
+  roms = ds.scan()
+  print('Found DS devices: ', roms)
+  print('Temperatures: ')
+  ds.convert_temp()
+  for rom in roms:
+    temp = ds.read_temp(rom)
+    if isinstance(temp, float):
+      msg = round(temp, 2)
+      print(temp, end=' ')
+      return msg
+  return b'0.0'
+    
+    
+    
+    
+    
+    
+    
+def web_page():
+    temp=read_ds_sensor()
+    sensor.measure()
+    t=sensor.temperature()
+    h=sensor.humidity()
+    sensor1.read_sensor()
+    bpm=sensor1.ir
+    o2=sensor1.red
+    
+    html = """<html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:,"><style>body { text-align: center; font-family: "Trebuchet MS", Arial;}
+    table { border-collapse: collapse; width:35%; margin-left:auto; margin-right:auto; }
+    th { padding: 12px; background-color: #0043af; color: white; }
+    tr { border: 1px solid #ddd; padding: 12px; }
+    tr:hover { background-color: #bcbcbc; }
+    td { border: none; padding: 12px; }
+    .sensor { color:white; font-weight: bold; background-color: #bcbcbc; padding: 1px;
+    </style></head><body><h1>ESP health monitoring</h1>
+    <table><tr><th>MEASUREMENT</th><th>VALUE</th></tr>
+    <tr><td>Body TEMP.</td><td><span class="sensor">""" + str(temp) + """C</span></td></tr>
+    <tr><td>Room TEMP.</td><td><span class="sensor">""" + str(t)  + """C</span></td></tr>
+    <tr><td>Room Humidity</td><td><span class="sensor">""" + str(h)  + """</span></td></tr>
+    <tr><td>BPM</td><td><span class="sensor">""" + str(bpm)  + """ Beats</span></td></tr>
+    <tr><td>O2%</td><td><span class="sensor">""" + str(o2)  + """%</span></td></tr>
+    
+    </body></html>"""
+    return html    
+    
+    
+while True:
+    conn, addr = s.accept()
+    print("Got connection from %s" % str(addr))
+    
+    request=conn.recv(1024)
+    print("")
+    print("")
+    print("Content %s" % str(request))
+
+    response = web_page()
+    conn.send('HTTP/1.1 200 OK\n')
+    conn.send('Content-Type: text/html\n')
+    conn.send('Connection: close\n\n')
+    conn.sendall(response)
+    
+    
+    
+    conn.close()
+    print('-------------------------------------------------------------------')
